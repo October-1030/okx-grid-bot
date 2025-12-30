@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 """
 OKX Grid Trading Bot - 启动入口
 
@@ -10,6 +11,12 @@ OKX Grid Trading Bot - 启动入口
 """
 import sys
 import os
+import io
+
+# 修复 Windows 控制台编码问题
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 # 将项目根目录添加到 Python 路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

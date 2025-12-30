@@ -38,7 +38,7 @@ GRID_LOWER_PRICE = 3000.0
 GRID_COUNT = 10
 
 # 每格投入的 USDT 金额（建议不超过总资金的2%）
-AMOUNT_PER_GRID = 4.0
+AMOUNT_PER_GRID = 3.9
 
 # ============== 风控配置 ==============
 # 止损价格（价格跌破此值时停止交易并卖出）
@@ -87,7 +87,7 @@ MIN_POSITION_RATIO = 0.1
 
 # ============== 运行配置 ==============
 # 价格检查间隔（秒）
-CHECK_INTERVAL = 10
+CHECK_INTERVAL = 5
 
 # 日志文件路径
 LOG_FILE = "grid_bot.log"

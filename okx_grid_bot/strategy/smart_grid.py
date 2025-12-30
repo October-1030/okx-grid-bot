@@ -173,8 +173,8 @@ class SmartGridStrategy:
                 'environment': analysis.get('environment', MarketEnvironment.CAUTION).value
             }
 
-        # 更新仓位管理器
-        position_manager.set_total_capital(config.AMOUNT_PER_GRID * config.GRID_COUNT)
+        # 不在这里更新总资本，应该在启动时设置一次（使用实际总资产）
+        # position_manager.set_total_capital(config.AMOUNT_PER_GRID * config.GRID_COUNT)
 
         # 计算建议仓位
         position = position_manager.calculate_position(

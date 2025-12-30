@@ -10,7 +10,7 @@ echo 注意: 请确保已配置好 .env 文件中的 API Key
 echo 按 Ctrl+C 可以安全停止机器人
 echo.
 pause
-python smart_bot.py
+python run.py
 echo.
 echo ========================================
 echo    机器人已停止，按任意键关闭窗口

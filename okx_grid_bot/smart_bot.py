@@ -128,15 +128,8 @@ class SmartGridBot:
             print(f"  总投入: {suggested.get('total_investment')} USDT")
             print("-" * 60)
 
-            # 询问是否应用建议参数
-            print("\n是否应用建议参数? (直接回车使用当前配置)")
-            try:
-                choice = input("输入 y 应用建议参数, 其他跳过: ").strip().lower()
-                if choice == 'y':
-                    self.strategy.apply_suggested_params(suggested)
-                    print("已应用建议参数!")
-            except:
-                pass
+            # 自动跳过建议参数，使用当前配置（后台模式）
+            print("\n自动使用当前配置（后台模式）")
 
         return True
 
@@ -178,21 +171,24 @@ class SmartGridBot:
 
         # P1-1: 启动时同步持仓状态
         if not self.strategy.sync_with_exchange():
-            log_warning("持仓状态可能不一致，是否继续? (输入 y 继续)")
-            try:
-                choice = input().strip().lower()
-                if choice != 'y':
-                    log_error("用户取消，请手动检查持仓后重试")
-                    return
-            except:
-                pass
+            log_warning("持仓状态可能不一致，自动继续运行（后台模式）")
+            # 自动继续，无需用户确认
+
+        # 计算总资产（USDT + ETH持仓价值）
+        position_info = api.get_position(config.SYMBOL)  # 获取ETH持仓
+        eth_amount = 0.0
+        if position_info and position_info.get('pos'):
+            eth_amount = float(position_info['pos'])
+        eth_value = eth_amount * current_price
+        total_value = balance + eth_value
+
+        logger.info(f"账户总资产: {total_value:.2f} USDT (USDT: {balance:.2f} + ETH: {eth_amount:.6f} × {current_price:.2f} = {eth_value:.2f})")
 
         # 初始化风控
-        total_value = balance
         risk_controller.initialize(total_value)
 
         # 初始化仓位管理
-        position_manager.set_total_capital(balance)
+        position_manager.set_total_capital(total_value)
 
         # 执行初始分析
         can_trade = self._initial_analysis()
