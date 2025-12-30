@@ -44,6 +44,12 @@ AMOUNT_PER_GRID = 20.0
 # 止损价格（价格跌破此值时停止交易并卖出）
 STOP_LOSS_PRICE = 2800.0
 
+# P2-1: 手续费率（根据你的VIP等级调整）
+TRADING_FEE_RATE = 0.001  # 0.1% 手续费率
+
+# P2-2: 最小利润率（需覆盖双边手续费）
+MIN_PROFIT_RATE = 0.003  # 0.3% 最小利润率
+
 # 最大持仓数量（最多持有多少格的仓位）
 MAX_POSITION_GRIDS = 10
 

@@ -51,6 +51,12 @@ class SmartGridStrategy:
         self.total_profit = 0.0
         self.trade_count = 0
 
+        # P0-1: 连续止损暂停机制
+        self.consecutive_stop_loss_count = 0
+        self.max_consecutive_stop_loss = 3
+        self.is_halted = False
+        self.halt_reason = ""
+
         # 市场分析结果
         self.market_analysis = None
         self.last_analysis_time = None
@@ -102,7 +108,13 @@ class SmartGridStrategy:
                             self.grids[idx].order_id = grid_data.get('order_id', "")
                     self.total_profit = data.get('total_profit', 0.0)
                     self.trade_count = data.get('trade_count', 0)
+                    # P0-1: 加载暂停状态
+                    self.consecutive_stop_loss_count = data.get('consecutive_stop_loss_count', 0)
+                    self.is_halted = data.get('is_halted', False)
+                    self.halt_reason = data.get('halt_reason', "")
                     logger.info(f"已加载历史记录，累计盈亏: {self.total_profit:.2f} USDT")
+                    if self.is_halted:
+                        log_warning(f"策略处于暂停状态: {self.halt_reason}")
             except Exception as e:
                 log_error(f"加载订单记录失败: {e}")
 
@@ -119,6 +131,10 @@ class SmartGridStrategy:
                     'grid_count': self.grid_count,
                     'amount_per_grid': self.amount_per_grid
                 },
+                # P0-1: 保存暂停状态
+                'consecutive_stop_loss_count': self.consecutive_stop_loss_count,
+                'is_halted': self.is_halted,
+                'halt_reason': self.halt_reason,
                 'last_update': datetime.now().isoformat()
             }
             with open(config.ORDERS_FILE, 'w', encoding='utf-8') as f:
@@ -260,6 +276,32 @@ class SmartGridStrategy:
         self._save_orders()
         logger.info("网格重新初始化完成，已保留持仓")
 
+    def sync_with_exchange(self) -> bool:
+        """
+        P1-1: 启动时与交易所同步持仓状态
+        """
+        try:
+            # 获取当前实际持仓
+            position = api.get_position(config.SYMBOL)
+            actual_amount = float(position.get('pos', 0)) if position else 0
+
+            # 计算本地记录的持仓
+            local_amount = sum(g.buy_amount for g in self.grids if g.is_bought)
+
+            # 比较差异
+            diff = abs(actual_amount - local_amount)
+            if diff > 0.0001:  # 允许微小误差
+                log_warning(f"持仓不一致! 本地: {local_amount:.6f}, 交易所: {actual_amount:.6f}")
+                log_warning("建议手动检查后决定是否继续")
+                return False
+
+            logger.info(f"持仓同步验证通过: {actual_amount:.6f}")
+            return True
+
+        except Exception as e:
+            log_error(f"同步持仓状态失败: {e}")
+            return False
+
     def get_grid_index(self, price: float) -> int:
         """根据价格获取网格索引"""
         if price <= self.lower_price:
@@ -298,6 +340,11 @@ class SmartGridStrategy:
             'message': ''
         }
 
+        # P0-1: 检查是否已暂停
+        if self.is_halted:
+            result['message'] = f'策略已暂停: {self.halt_reason}'
+            return result
+
         # 风控检查
         position_value = self.get_position_value(current_price)
         balance = api.get_balance('USDT') or 0
@@ -316,9 +363,17 @@ class SmartGridStrategy:
 
         # 检查止损
         if current_price <= self.stop_loss_price:
-            log_warning(f"触发止损! 当前价格 {current_price} <= {self.stop_loss_price}")
+            # P0-1: 连续止损计数
+            self.consecutive_stop_loss_count += 1
+            log_warning(f"触发止损! 连续止损次数: {self.consecutive_stop_loss_count}/{self.max_consecutive_stop_loss}")
+
+            if self.consecutive_stop_loss_count >= self.max_consecutive_stop_loss:
+                self.is_halted = True
+                self.halt_reason = f"连续{self.max_consecutive_stop_loss}次止损，请检查市场环境"
+                log_error(f"策略已暂停: {self.halt_reason}")
+
             result['action'] = 'stop_loss'
-            result['message'] = '触发止损'
+            result['message'] = f'触发止损 ({self.consecutive_stop_loss_count}/{self.max_consecutive_stop_loss})'
             return result
 
         # 检查是否超出范围
@@ -350,42 +405,97 @@ class SmartGridStrategy:
         # 检查卖出
         for i in range(current_grid_index + 1, len(self.grids)):
             grid = self.grids[i]
-            if grid.is_bought and current_price >= grid.price:
-                success = self._execute_sell(grid, current_price)
-                if success:
-                    result['action'] = 'sell'
-                    result['success'] = True
-                    result['message'] = f'在网格 {i} 卖出成功'
-                    return result
+            if grid.is_bought:
+                # P2-2: 计算最小卖出价（基于实际买入价）
+                min_sell_price = grid.buy_price * (1 + config.MIN_PROFIT_RATE)
+
+                # 同时满足：高于网格价 AND 高于最小盈利价
+                if current_price >= grid.price and current_price >= min_sell_price:
+                    success = self._execute_sell(grid, current_price)
+                    if success:
+                        result['action'] = 'sell'
+                        result['success'] = True
+                        result['message'] = f'在网格 {i} 卖出成功'
+                        return result
+                elif current_price >= grid.price and current_price < min_sell_price:
+                    logger.debug(f"网格 {i}: 价格达到网格线但未达最小利润 (当前:{current_price:.2f}, 需:{min_sell_price:.2f})")
 
         result['message'] = '无交易信号'
         return result
 
     def _execute_buy(self, grid: GridLevel, current_price: float) -> bool:
-        """执行买入"""
+        """
+        执行买入
+        P1-2: 支持部分成交处理
+        """
         logger.info(f"尝试买入: 网格 {grid.index}, 价格 {current_price}")
 
         order = api.buy_market(self.amount_per_grid)
 
         if order:
             order_id = order.get('ordId', '')
-            estimated_amount = self.amount_per_grid / current_price
 
-            grid.is_bought = True
-            grid.buy_price = current_price
-            grid.buy_amount = estimated_amount
-            grid.buy_time = datetime.now().isoformat()
-            grid.order_id = order_id
+            # P1-2: 等待并查询实际成交情况
+            import time
+            time.sleep(1)  # 等待成交
 
-            log_trade("买入", current_price, estimated_amount, grid.index)
-            self._save_orders()
-            self.trade_count += 1
-            return True
+            order_detail = api.get_order_detail(order_id)
+            if order_detail:
+                fill_sz = float(order_detail.get('fillSz', 0))  # 实际成交数量
+                avg_px = float(order_detail.get('avgPx', current_price))  # 平均成交价
+                state = order_detail.get('state', '')
+
+                if state == 'filled':  # 完全成交
+                    grid.is_bought = True
+                    grid.buy_price = avg_px
+                    grid.buy_amount = fill_sz
+                    grid.buy_time = datetime.now().isoformat()
+                    grid.order_id = order_id
+
+                    log_trade("买入", avg_px, fill_sz, grid.index)
+                    self._save_orders()
+                    self.trade_count += 1
+                    return True
+
+                elif state == 'partially_filled':  # 部分成交
+                    log_warning(f"订单部分成交: {fill_sz}/{self.amount_per_grid/current_price:.6f}")
+                    # 部分成交也记录，避免遗漏
+                    if fill_sz > 0:
+                        grid.is_bought = True
+                        grid.buy_price = avg_px
+                        grid.buy_amount = fill_sz
+                        grid.buy_time = datetime.now().isoformat()
+                        grid.order_id = order_id
+                        log_trade("买入(部分)", avg_px, fill_sz, grid.index)
+                        self._save_orders()
+                        self.trade_count += 1
+                        return True
+                    return False
+                else:
+                    log_warning(f"订单状态异常: {state}")
+                    return False
+            else:
+                # 查询失败，使用估算值（降级处理）
+                estimated_amount = self.amount_per_grid / current_price
+                grid.is_bought = True
+                grid.buy_price = current_price
+                grid.buy_amount = estimated_amount
+                grid.buy_time = datetime.now().isoformat()
+                grid.order_id = order_id
+
+                log_warning("无法获取订单详情，使用估算值")
+                log_trade("买入(估算)", current_price, estimated_amount, grid.index)
+                self._save_orders()
+                self.trade_count += 1
+                return True
 
         return False
 
     def _execute_sell(self, grid: GridLevel, current_price: float) -> bool:
-        """执行卖出"""
+        """
+        执行卖出
+        P2-1: 手续费计入盈亏计算
+        """
         logger.info(f"尝试卖出: 网格 {grid.index}, 买入价 {grid.buy_price}, 当前价 {current_price}")
 
         order = api.sell_market(grid.buy_amount)
@@ -393,13 +503,24 @@ class SmartGridStrategy:
         if order:
             sell_value = grid.buy_amount * current_price
             buy_value = grid.buy_amount * grid.buy_price
-            profit = sell_value - buy_value
 
-            self.total_profit += profit
-            risk_controller.record_trade(profit)
+            # P2-1: 扣除双边手续费
+            buy_fee = buy_value * config.TRADING_FEE_RATE
+            sell_fee = sell_value * config.TRADING_FEE_RATE
+
+            gross_profit = sell_value - buy_value  # 毛利润
+            net_profit = gross_profit - buy_fee - sell_fee  # 净利润
+
+            self.total_profit += net_profit
+            risk_controller.record_trade(net_profit)
+
+            # P0-1: 盈利交易重置连续止损计数
+            if net_profit > 0:
+                self.consecutive_stop_loss_count = 0
 
             log_trade("卖出", current_price, grid.buy_amount, grid.index)
-            logger.info(f"盈亏: {profit:.4f} USDT, 累计: {self.total_profit:.4f} USDT")
+            logger.info(f"毛利润: {gross_profit:.4f}, 手续费: {buy_fee + sell_fee:.4f}, 净利润: {net_profit:.4f} USDT")
+            logger.info(f"累计净盈亏: {self.total_profit:.4f} USDT")
 
             grid.is_bought = False
             grid.buy_price = 0.0
@@ -413,6 +534,15 @@ class SmartGridStrategy:
 
         return False
 
+    def resume_trading(self):
+        """
+        P0-1: 手动恢复交易（需人工确认市场环境后调用）
+        """
+        self.is_halted = False
+        self.halt_reason = ""
+        self.consecutive_stop_loss_count = 0
+        logger.info("策略已恢复交易")
+
     def get_status(self) -> Dict:
         """获取策略状态"""
         bought_grids = [g.index for g in self.grids if g.is_bought]
@@ -425,7 +555,11 @@ class SmartGridStrategy:
             'upper_price': self.upper_price,
             'lower_price': self.lower_price,
             'amount_per_grid': self.amount_per_grid,
-            'environment': self.market_analysis.get('environment', 'unknown').value if self.market_analysis else 'unknown'
+            'environment': self.market_analysis.get('environment', 'unknown').value if self.market_analysis else 'unknown',
+            # P0-1: 新增暂停状态
+            'is_halted': self.is_halted,
+            'halt_reason': self.halt_reason,
+            'consecutive_stop_loss': self.consecutive_stop_loss_count
         }
 
     def print_grid_status(self, current_price: float):

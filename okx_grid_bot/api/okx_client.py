@@ -329,6 +329,60 @@ class OkxAPI:
             return result['data'][0].get('sCode') == '0'
         return False
 
+    # ============== P1-1: 持仓同步接口 ==============
+
+    def get_position(self, symbol: str = None) -> Optional[Dict]:
+        """
+        P1-1: 获取指定交易对的持仓数量（现货账户）
+
+        Args:
+            symbol: 交易对，如 ETH-USDT
+
+        Returns:
+            持仓信息字典，包含 pos (持仓数量)
+        """
+        symbol = symbol or config.SYMBOL
+        base_currency = symbol.split('-')[0]  # ETH-USDT -> ETH
+
+        endpoint = '/api/v5/account/balance'
+        result = self._request('GET', endpoint)
+
+        if result and result.get('data'):
+            details = result['data'][0].get('details', [])
+            for item in details:
+                if item.get('ccy') == base_currency:
+                    return {
+                        'pos': item.get('availBal', '0'),
+                        'currency': base_currency,
+                        'frozen': item.get('frozenBal', '0')
+                    }
+        return {'pos': '0', 'currency': base_currency, 'frozen': '0'}
+
+    # ============== P1-2: 订单详情接口 ==============
+
+    def get_order_detail(self, order_id: str, symbol: str = None) -> Optional[Dict]:
+        """
+        P1-2: 获取订单详情（用于查询实际成交信息）
+
+        Args:
+            order_id: 订单ID
+            symbol: 交易对
+
+        Returns:
+            订单详情，包含 fillSz (成交数量), avgPx (平均成交价), state (状态)
+        """
+        symbol = symbol or config.SYMBOL
+        endpoint = '/api/v5/trade/order'
+        params = {
+            'instId': symbol,
+            'ordId': order_id
+        }
+
+        result = self._request('GET', endpoint, params=params)
+        if result and result.get('data'):
+            return result['data'][0]
+        return None
+
 
 # 创建全局 API 实例
 api = OkxAPI()

@@ -33,6 +33,8 @@ class SmartGridBot:
         self.strategy = None
         self.last_analysis_time = None
         self.analysis_interval = 3600  # 每小时重新分析
+        # P0-3: 交易开关控制
+        self.trading_enabled = True
 
         # 注册信号处理
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -59,6 +61,41 @@ class SmartGridBot:
             return 0
         logger.info(f"USDT 余额: {balance:.2f}")
         return balance
+
+    def _validate_risk_parameters(self, balance: float) -> bool:
+        """
+        P0-2: 验证风险参数是否合规
+
+        Args:
+            balance: 当前余额
+
+        Returns:
+            bool: 参数是否合规
+        """
+        max_risk_per_trade = balance * 0.02  # 单笔最大风险2%
+
+        if config.AMOUNT_PER_GRID > max_risk_per_trade:
+            log_error(f"风险参数不合规!")
+            log_error(f"  当前余额: {balance:.2f} USDT")
+            log_error(f"  每格金额: {config.AMOUNT_PER_GRID} USDT")
+            log_error(f"  占比: {(config.AMOUNT_PER_GRID/balance)*100:.1f}% (超过2%上限)")
+            log_error(f"  建议每格金额: <= {max_risk_per_trade:.2f} USDT")
+            return False
+
+        # 验证总风险敞口
+        max_total_exposure = balance * 0.30  # 总持仓不超过30%
+        max_exposure = config.AMOUNT_PER_GRID * config.MAX_POSITION_GRIDS
+
+        if max_exposure > max_total_exposure:
+            log_warning(f"总风险敞口较高:")
+            log_warning(f"  最大持仓: {max_exposure:.2f} USDT ({(max_exposure/balance)*100:.1f}%)")
+            log_warning(f"  建议上限: {max_total_exposure:.2f} USDT (30%)")
+            # 这里只警告不阻止，但记录日志
+
+        logger.info(f"风险参数验证通过:")
+        logger.info(f"  单笔风险: {(config.AMOUNT_PER_GRID/balance)*100:.1f}% (<= 2%)")
+        logger.info(f"  最大敞口: {(max_exposure/balance)*100:.1f}%")
+        return True
 
     def _initial_analysis(self) -> bool:
         """
@@ -124,6 +161,11 @@ class SmartGridBot:
         if balance <= 0:
             return
 
+        # P0-2: 验证风险参数
+        if not self._validate_risk_parameters(balance):
+            log_error("风险参数不合规，请调整配置后重试")
+            return
+
         # 获取当前价格
         current_price = api.get_current_price()
         if current_price is None:
@@ -133,6 +175,17 @@ class SmartGridBot:
 
         # 初始化策略
         self.strategy = SmartGridStrategy()
+
+        # P1-1: 启动时同步持仓状态
+        if not self.strategy.sync_with_exchange():
+            log_warning("持仓状态可能不一致，是否继续? (输入 y 继续)")
+            try:
+                choice = input().strip().lower()
+                if choice != 'y':
+                    log_error("用户取消，请手动检查持仓后重试")
+                    return
+            except:
+                pass
 
         # 初始化风控
         total_value = balance
@@ -172,9 +225,15 @@ class SmartGridBot:
                     analysis_result = self.strategy.analyze_and_adjust()
                     self.last_analysis_time = datetime.now()
 
+                    # P0-3: 市场分析结果硬控制交易
                     if not analysis_result.get('should_trade', False):
-                        log_warning("市场环境变化，暂停交易")
-                        # 不退出，继续监控
+                        self.trading_enabled = False  # 禁用交易
+                        log_warning("市场环境不适合交易，进入观望模式")
+                        for reason in analysis_result.get('reason', []):
+                            log_warning(f"  - {reason}")
+                    else:
+                        self.trading_enabled = True  # 市场好转，恢复交易
+                        logger.info("市场环境适合交易")
 
                 # 获取当前价格
                 current_price = api.get_current_price()
@@ -192,8 +251,11 @@ class SmartGridBot:
 
                 error_count = 0
 
-                # 执行交易策略
-                result = self.strategy.check_and_trade(current_price)
+                # P0-3: 根据交易开关执行策略
+                if self.trading_enabled:
+                    result = self.strategy.check_and_trade(current_price)
+                else:
+                    result = {'action': None, 'message': '观望中，等待市场好转'}
 
                 # 输出状态
                 status = self.strategy.get_status()
@@ -229,8 +291,14 @@ class SmartGridBot:
     def _print_status(self, current_price: float, status: Dict):
         """打印状态"""
         position_value = self.strategy.get_position_value(current_price)
+        # P0-3: 显示交易状态
+        trade_status = "交易中" if self.trading_enabled else "观望中"
+        # P0-1: 如果策略暂停，显示暂停状态
+        if status.get('is_halted', False):
+            trade_status = "已暂停"
         print(f"\r[{datetime.now().strftime('%H:%M:%S')}] "
               f"价格: {current_price:.2f} | "
+              f"状态: {trade_status} | "
               f"持仓: {status['position_count']}/{status['grid_count']} | "
               f"持仓价值: {position_value:.2f} | "
               f"盈亏: {status['total_profit']:.2f} | "
