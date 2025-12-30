@@ -18,7 +18,7 @@ from typing import Optional, Dict, Any, Union
 import requests
 
 from okx_grid_bot.utils import config
-from okx_grid_bot.utils.logger import logger, log_error
+from okx_grid_bot.utils.logger import logger, log_error, log_warning
 from okx_grid_bot.utils.retry import retry  # 导入重试装饰器
 from okx_grid_bot.api.exceptions import (
     OKXAPIError,
