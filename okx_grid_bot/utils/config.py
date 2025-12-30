@@ -48,6 +48,11 @@ AMOUNT_PER_GRID = 3.9
 # 止损价格（价格跌破此值时停止交易并卖出）
 STOP_LOSS_PRICE = 2800.0
 
+# P0-2: 止损行为配置
+# "pause"     = 仅暂停交易，保留持仓（适合短期波动）
+# "liquidate" = 自动清仓止损，卖出所有持仓（适合趋势反转）
+STOP_LOSS_ACTION = "pause"
+
 # P2-1: 手续费率（根据你的VIP等级调整）
 TRADING_FEE_RATE = 0.001  # 0.1% 手续费率
 

@@ -58,11 +58,28 @@ def main():
     parser.add_argument('--yes', '-y', action='store_true',
                         help='非交互模式下自动确认所有提示')
 
+    # P0-5: 实盘交易互锁保护
+    parser.add_argument('--live', action='store_true',
+                        help='⚠️ 启用实盘交易（必须显式指定，否则仅分析模式）')
+
     args = parser.parse_args()
 
     # 设置全局非交互模式标志
     os.environ['NON_INTERACTIVE'] = '1' if args.non_interactive else '0'
     os.environ['AUTO_YES'] = '1' if args.yes else '0'
+
+    # P0-5: 实盘保护 - 未指定 --live 且非模拟盘时，强制启用仅分析模式
+    use_simulated = os.getenv("USE_SIMULATED", "False").lower() == "true"
+    if not args.live and not use_simulated and not args.analyze:
+        print("\n" + "=" * 70)
+        print("  ⚠️  实盘交易保护")
+        print("=" * 70)
+        print("  检测到实盘模式但未指定 --live 标志")
+        print("  为防止误操作，已自动启用【仅分析模式】")
+        print("  ")
+        print("  如需实盘交易，请使用: python run.py --live")
+        print("=" * 70 + "\n")
+        os.environ['ANALYZE_ONLY'] = '1'
 
     # analyze模式自动启用ANALYZE_ONLY硬锁
     if args.analyze:

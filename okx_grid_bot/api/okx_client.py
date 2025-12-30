@@ -223,7 +223,8 @@ class OkxAPI:
     # ============== 交易接口 ==============
 
     def place_order(self, side: str, size: str, price: Optional[str] = None,
-                    order_type: str = 'market', symbol: str = None) -> Optional[Dict]:
+                    order_type: str = 'market', symbol: str = None,
+                    client_order_id: Optional[str] = None) -> Optional[Dict]:
         """
         下单
 
@@ -233,6 +234,7 @@ class OkxAPI:
             price: 限价单价格（市价单不需要）
             order_type: 'market' 市价单 或 'limit' 限价单
             symbol: 交易对
+            client_order_id: P1-4 客户端订单ID（用于幂等性保护）
 
         Returns:
             订单信息或 None
@@ -253,6 +255,10 @@ class OkxAPI:
             'sz': str(size)
         }
 
+        # P1-4: 添加客户端订单ID实现幂等性
+        if client_order_id:
+            body['clOrdId'] = client_order_id
+
         # 现货买入时，sz 是计价货币数量（USDT），需要设置 tgtCcy
         if side == 'buy':
             body['tgtCcy'] = 'quote_ccy'  # 按 USDT 金额买入
@@ -270,16 +276,34 @@ class OkxAPI:
                 log_error(f"下单失败: {order_data.get('sMsg')}")
         return None
 
-    def buy_market(self, usdt_amount: float, symbol: str = None) -> Optional[Dict]:
+    def buy_market(self, usdt_amount: float, symbol: str = None,
+                   client_order_id: Optional[str] = None) -> Optional[Dict]:
         """
         市价买入（按 USDT 金额）
-        """
-        return self.place_order('buy', str(usdt_amount), order_type='market', symbol=symbol)
 
-    def sell_market(self, coin_amount: float, symbol: str = None) -> Optional[Dict]:
+        Args:
+            usdt_amount: USDT金额
+            symbol: 交易对
+            client_order_id: P1-4 客户端订单ID（用于幂等性保护）
+        """
+        return self.place_order('buy', str(usdt_amount), order_type='market',
+                                symbol=symbol, client_order_id=client_order_id)
+
+    def sell_market(self, coin_amount: float, symbol: str = None,
+                    client_order_id: Optional[str] = None) -> Optional[Dict]:
         """
         市价卖出（按币数量）
+
+        Args:
+            coin_amount: 币数量
+            symbol: 交易对
+            client_order_id: P1-4 客户端订单ID（用于幂等性保护）
         """
+        # 硬锁：仅分析模式下禁止所有下单操作
+        if config.ANALYZE_ONLY:
+            log_warning(f"[仅分析模式] 阻止卖出: {coin_amount}")
+            return None
+
         symbol = symbol or config.SYMBOL
         endpoint = '/api/v5/trade/order'
 
@@ -291,6 +315,10 @@ class OkxAPI:
             'sz': str(coin_amount),
             'tgtCcy': 'base_ccy'  # 按币的数量卖出
         }
+
+        # P1-4: 添加客户端订单ID实现幂等性
+        if client_order_id:
+            body['clOrdId'] = client_order_id
 
         result = self._request('POST', endpoint, body=body)
         if result and result.get('data'):

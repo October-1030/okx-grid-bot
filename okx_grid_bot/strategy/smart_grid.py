@@ -10,6 +10,7 @@ from datetime import datetime
 
 from okx_grid_bot.utils import config
 from okx_grid_bot.utils.logger import logger, log_trade, log_error, log_warning
+from okx_grid_bot.utils.notifier import notifier, AlertLevel  # P1-1: 导入通知模块
 from okx_grid_bot.api.okx_client import api
 from okx_grid_bot.analysis.macro_analysis import macro_analyzer, MarketEnvironment
 from okx_grid_bot.risk.risk_control import risk_controller
@@ -367,10 +368,25 @@ class SmartGridStrategy:
             self.consecutive_stop_loss_count += 1
             log_warning(f"触发止损! 连续止损次数: {self.consecutive_stop_loss_count}/{self.max_consecutive_stop_loss}")
 
+            # P1-1: 发送止损告警
+            notifier.alert_stop_loss(current_price, self.consecutive_stop_loss_count)
+
             if self.consecutive_stop_loss_count >= self.max_consecutive_stop_loss:
                 self.is_halted = True
                 self.halt_reason = f"连续{self.max_consecutive_stop_loss}次止损，请检查市场环境"
                 log_error(f"策略已暂停: {self.halt_reason}")
+
+                # P1-1: 发送熔断告警
+                notifier.alert_circuit_breaker(self.halt_reason)
+
+                # P0-2 & P0-4: 根据配置执行止损动作
+                if config.STOP_LOSS_ACTION == "liquidate":
+                    logger.info("执行清仓止损...")
+                    self._liquidate_all_positions()
+                else:
+                    # 默认为 pause，仅撤销挂单
+                    logger.info("执行暂停交易...")
+                    self._cancel_all_pending_orders()
 
             result['action'] = 'stop_loss'
             result['message'] = f'触发止损 ({self.consecutive_stop_loss_count}/{self.max_consecutive_stop_loss})'
@@ -427,10 +443,15 @@ class SmartGridStrategy:
         """
         执行买入
         P1-2: 支持部分成交处理
+        P1-4: 使用 clOrdId 实现幂等性
         """
         logger.info(f"尝试买入: 网格 {grid.index}, 价格 {current_price}")
 
-        order = api.buy_market(self.amount_per_grid)
+        # P1-4: 生成唯一的客户端订单ID（格式：B-网格索引-时间戳）
+        import time
+        client_order_id = f"B-{grid.index}-{int(time.time() * 1000)}"
+
+        order = api.buy_market(self.amount_per_grid, client_order_id=client_order_id)
 
         if order:
             order_id = order.get('ordId', '')
@@ -495,10 +516,15 @@ class SmartGridStrategy:
         """
         执行卖出
         P2-1: 手续费计入盈亏计算
+        P1-4: 使用 clOrdId 实现幂等性
         """
         logger.info(f"尝试卖出: 网格 {grid.index}, 买入价 {grid.buy_price}, 当前价 {current_price}")
 
-        order = api.sell_market(grid.buy_amount)
+        # P1-4: 生成唯一的客户端订单ID（格式：S-网格索引-时间戳）
+        import time
+        client_order_id = f"S-{grid.index}-{int(time.time() * 1000)}"
+
+        order = api.sell_market(grid.buy_amount, client_order_id=client_order_id)
 
         if order:
             sell_value = grid.buy_amount * current_price
@@ -522,6 +548,10 @@ class SmartGridStrategy:
             logger.info(f"毛利润: {gross_profit:.4f}, 手续费: {buy_fee + sell_fee:.4f}, 净利润: {net_profit:.4f} USDT")
             logger.info(f"累计净盈亏: {self.total_profit:.4f} USDT")
 
+            # P1-1: 大额盈亏时发送通知（绝对值 > 1 USDT）
+            if abs(net_profit) > 1.0:
+                notifier.alert_trade("卖出", current_price, grid.buy_amount, net_profit)
+
             grid.is_bought = False
             grid.buy_price = 0.0
             grid.buy_amount = 0.0
@@ -533,6 +563,68 @@ class SmartGridStrategy:
             return True
 
         return False
+
+    def _cancel_all_pending_orders(self):
+        """
+        P0-4: 撤销所有挂单（熔断时调用）
+        """
+        from okx_grid_bot.api.okx_client import api
+
+        cancelled_count = 0
+        for grid in self.grids:
+            if grid.order_id:
+                try:
+                    if api.cancel_order(grid.order_id):
+                        logger.info(f"已撤销网格 {grid.index} 的挂单: {grid.order_id}")
+                        grid.order_id = ""
+                        cancelled_count += 1
+                    else:
+                        log_warning(f"撤销网格 {grid.index} 的挂单失败: {grid.order_id}")
+                except Exception as e:
+                    log_error(f"撤销订单 {grid.order_id} 时出错: {e}")
+
+        if cancelled_count > 0:
+            logger.info(f"熔断保护: 已撤销 {cancelled_count} 个挂单")
+            self._save_orders()
+
+        return cancelled_count
+
+    def _liquidate_all_positions(self):
+        """
+        P0-2: 清仓止损（卖出所有持仓）
+        """
+        from okx_grid_bot.api.okx_client import api
+
+        # 先撤销所有挂单
+        self._cancel_all_pending_orders()
+
+        # 计算总持仓
+        total_position = sum(grid.filled_amount for grid in self.grids if grid.is_bought)
+
+        if total_position > 0:
+            try:
+                logger.info(f"执行清仓止损，卖出持仓: {total_position:.6f}")
+                order = api.sell_market(total_position)
+                if order:
+                    # 更新所有网格状态
+                    for grid in self.grids:
+                        if grid.is_bought:
+                            grid.is_bought = False
+                            grid.filled_amount = 0
+                            grid.order_id = ""
+
+                    self._save_orders()
+                    logger.info(f"清仓完成，已卖出 {total_position:.6f}")
+                    return True
+                else:
+                    log_error("清仓失败：卖单提交失败")
+                    return False
+            except Exception as e:
+                log_error(f"清仓时出错: {e}")
+                return False
+        else:
+            logger.info("无持仓，跳过清仓")
+            return True
 
     def resume_trading(self):
         """
