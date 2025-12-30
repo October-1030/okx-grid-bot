@@ -42,7 +42,7 @@ GRID_LOWER_PRICE = 2900.0
 GRID_COUNT = 10
 
 # 每格投入的 USDT 金额（建议不超过总资金的2%）
-AMOUNT_PER_GRID = 3.9
+AMOUNT_PER_GRID = 3.8
 
 # ============== 风控配置 ==============
 # 止损价格（价格跌破此值时停止交易并卖出）
