@@ -35,13 +35,13 @@ class RiskController:
     """
 
     def __init__(self):
-        # 风控参数
-        self.max_drawdown_percent = 10.0      # 最大回撤百分比
-        self.daily_loss_limit = 50.0          # 日亏损上限 (USDT)
+        # 风控参数 - 从 config 读取
+        self.max_drawdown_percent = config.MAX_DRAWDOWN_PERCENT  # 最大回撤百分比
+        self.daily_loss_limit = config.DAILY_LOSS_LIMIT          # 日亏损上限 (USDT)
         self.max_position_value = 500.0       # 最大持仓价值
         self.price_drop_alert = 5.0           # 价格下跌警报阈值 (%)
         self.price_spike_alert = 10.0         # 价格剧烈波动阈值 (%)
-        self.consecutive_loss_limit = 3       # 连续亏损次数限制
+        self.consecutive_loss_limit = config.CONSECUTIVE_LOSS_LIMIT  # 连续亏损次数限制
 
         # 状态追踪
         self.initial_value = 0.0              # 初始资产价值
