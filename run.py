@@ -3,8 +3,8 @@
 OKX Grid Trading Bot - 启动入口
 
 使用方法:
-    python run.py           # 启动基础版网格机器人
-    python run.py --smart   # 启动智能版（带市场分析）
+    python run.py           # 启动智能版（默认，带市场分析和风控）
+    python run.py --basic   # 启动基础版网格机器人
     python run.py --analyze # 仅运行市场分析
     python run.py --help    # 显示帮助
 """
@@ -16,16 +16,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 def print_banner():
-    """打印启动横幅"""
+    """打印启动横幅（基础版使用）"""
     print("""
     ╔═══════════════════════════════════════════════════════════════╗
     ║                                                               ║
-    ║           OKX 网格量化交易机器人  v2.0                        ║
-    ║                                                               ║
-    ║  使用方法:                                                    ║
-    ║    python run.py           启动基础版网格机器人               ║
-    ║    python run.py --smart   启动智能版（带市场分析）           ║
-    ║    python run.py --analyze 仅运行市场分析                     ║
+    ║           OKX 网格量化交易机器人  v2.0 (基础版)               ║
     ║                                                               ║
     ║  注意: 量化交易有风险，请用可承受损失的资金进行测试          ║
     ║                                                               ║
@@ -42,10 +37,11 @@ def main():
             print(__doc__)
             return
 
-        elif arg == '--smart':
-            # 启动智能版
-            from okx_grid_bot.smart_bot import SmartGridBot
-            bot = SmartGridBot()
+        elif arg == '--basic':
+            # 启动基础版
+            print_banner()
+            from okx_grid_bot.bot import GridBot
+            bot = GridBot()
             bot.start()
 
         elif arg == '--analyze':
@@ -61,10 +57,9 @@ def main():
             print(f"未知参数: {arg}")
             print("使用 python run.py --help 查看帮助")
     else:
-        # 默认启动基础版
-        print_banner()
-        from okx_grid_bot.bot import GridBot
-        bot = GridBot()
+        # 默认启动智能版（带市场分析和风控）
+        from okx_grid_bot.smart_bot import SmartGridBot
+        bot = SmartGridBot()
         bot.start()
 
 
