@@ -447,9 +447,10 @@ class SmartGridStrategy:
         """
         logger.info(f"尝试买入: 网格 {grid.index}, 价格 {current_price}")
 
-        # P1-4: 生成唯一的客户端订单ID（格式：B-网格索引-时间戳）
+        # P1-4: 生成唯一的客户端订单ID（格式：B-网格索引-时间戳-随机数）
         import time
-        client_order_id = f"B-{grid.index}-{int(time.time() * 1000)}"
+        import random
+        client_order_id = f"B-{grid.index}-{int(time.time() * 1000000)}-{random.randint(1000, 9999)}"
 
         order = api.buy_market(self.amount_per_grid, client_order_id=client_order_id)
 
@@ -520,9 +521,10 @@ class SmartGridStrategy:
         """
         logger.info(f"尝试卖出: 网格 {grid.index}, 买入价 {grid.buy_price}, 当前价 {current_price}")
 
-        # P1-4: 生成唯一的客户端订单ID（格式：S-网格索引-时间戳）
+        # P1-4: 生成唯一的客户端订单ID（格式：S-网格索引-时间戳-随机数）
         import time
-        client_order_id = f"S-{grid.index}-{int(time.time() * 1000)}"
+        import random
+        client_order_id = f"S-{grid.index}-{int(time.time() * 1000000)}-{random.randint(1000, 9999)}"
 
         order = api.sell_market(grid.buy_amount, client_order_id=client_order_id)
 

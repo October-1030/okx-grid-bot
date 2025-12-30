@@ -33,10 +33,10 @@ TRADE_MODE = "cash"
 # ============== 网格参数 ==============
 # 价格上限（当价格高于此值时不再买入）
 # 注意：智能模式下会根据市场分析自动调整
-GRID_UPPER_PRICE = 4000.0
+GRID_UPPER_PRICE = 3200.0
 
 # 价格下限（当价格低于此值时触发止损）
-GRID_LOWER_PRICE = 3000.0
+GRID_LOWER_PRICE = 2900.0
 
 # 网格数量（在上下限之间分多少格）
 GRID_COUNT = 10
