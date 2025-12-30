@@ -19,6 +19,10 @@ BASE_URL = "https://www.okx.com"
 # 是否使用模拟盘（True = 模拟盘，False = 实盘）
 USE_SIMULATED = False
 
+# 仅分析模式（True = 只分析不下单，False = 正常交易）
+# 安全开关：启用后所有下单操作都会被阻止
+ANALYZE_ONLY = os.getenv("ANALYZE_ONLY", "0") == "1"
+
 # ============== 交易配置 ==============
 # 交易对
 SYMBOL = "ETH-USDT"

@@ -57,14 +57,18 @@ USE_SIMULATED=true
 ### 运行
 
 ```bash
-# 基础版（简单网格策略）
+# 智能版（默认，带市场分析和风控）
 python run.py
 
-# 智能版（带市场分析）
-python run.py --smart
+# 基础版（简单网格策略）
+python run.py --basic
 
 # 仅运行市场分析
 python run.py --analyze
+
+# 非交互模式（适合后台运行）
+python run.py --yes
+python run.py --non-interactive  # 遇到异常直接退出
 ```
 
 ## 配置参数

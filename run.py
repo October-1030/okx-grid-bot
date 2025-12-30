@@ -4,14 +4,17 @@
 OKX Grid Trading Bot - 启动入口
 
 使用方法:
-    python run.py           # 启动智能版（默认，带市场分析和风控）
-    python run.py --basic   # 启动基础版网格机器人
-    python run.py --analyze # 仅运行市场分析
-    python run.py --help    # 显示帮助
+    python run.py                    # 启动智能版（默认，带市场分析和风控）
+    python run.py --basic            # 启动基础版网格机器人
+    python run.py --analyze          # 仅运行市场分析
+    python run.py --non-interactive  # 非交互模式，遇到异常直接退出
+    python run.py --yes              # 非交互模式下自动确认所有提示
+    python run.py --help             # 显示帮助
 """
 import sys
 import os
 import io
+import argparse
 
 # 修复 Windows 控制台编码问题
 if sys.platform == 'win32':
@@ -37,32 +40,49 @@ def print_banner():
 
 def main():
     """主函数"""
-    if len(sys.argv) > 1:
-        arg = sys.argv[1]
+    parser = argparse.ArgumentParser(
+        description='OKX Grid Trading Bot',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__
+    )
 
-        if arg == '--help' or arg == '-h':
-            print(__doc__)
-            return
+    # 运行模式
+    parser.add_argument('--basic', action='store_true',
+                        help='启动基础版网格机器人')
+    parser.add_argument('--analyze', action='store_true',
+                        help='仅运行市场分析，不进行交易')
 
-        elif arg == '--basic':
-            # 启动基础版
-            print_banner()
-            from okx_grid_bot.bot import GridBot
-            bot = GridBot()
-            bot.start()
+    # 非交互模式参数
+    parser.add_argument('--non-interactive', action='store_true',
+                        help='非交互模式，遇到异常情况直接退出')
+    parser.add_argument('--yes', '-y', action='store_true',
+                        help='非交互模式下自动确认所有提示')
 
-        elif arg == '--analyze':
-            # 仅运行分析
-            from okx_grid_bot.analysis.macro_analysis import macro_analyzer
-            print("\n" + "=" * 60)
-            print("         市 场 分 析 模 式")
-            print("=" * 60 + "\n")
-            result = macro_analyzer.analyze_market()
-            macro_analyzer.print_analysis_report(result)
+    args = parser.parse_args()
 
-        else:
-            print(f"未知参数: {arg}")
-            print("使用 python run.py --help 查看帮助")
+    # 设置全局非交互模式标志
+    os.environ['NON_INTERACTIVE'] = '1' if args.non_interactive else '0'
+    os.environ['AUTO_YES'] = '1' if args.yes else '0'
+
+    # analyze模式自动启用ANALYZE_ONLY硬锁
+    if args.analyze:
+        # 在import config前设置环境变量
+        os.environ['ANALYZE_ONLY'] = '1'
+        # 仅运行分析
+        from okx_grid_bot.analysis.macro_analysis import macro_analyzer
+        print("\n" + "=" * 60)
+        print("         市 场 分 析 模 式")
+        print("=" * 60 + "\n")
+        result = macro_analyzer.analyze_market()
+        macro_analyzer.print_analysis_report(result)
+
+    elif args.basic:
+        # 启动基础版
+        print_banner()
+        from okx_grid_bot.bot import GridBot
+        bot = GridBot()
+        bot.start()
+
     else:
         # 默认启动智能版（带市场分析和风控）
         from okx_grid_bot.smart_bot import SmartGridBot

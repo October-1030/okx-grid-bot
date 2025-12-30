@@ -237,6 +237,11 @@ class OkxAPI:
         Returns:
             订单信息或 None
         """
+        # 硬锁：仅分析模式下禁止所有下单操作
+        if config.ANALYZE_ONLY:
+            log_warning(f"[仅分析模式] 阻止下单: {side} {size} @ {price or 'market'}")
+            return None
+
         symbol = symbol or config.SYMBOL
         endpoint = '/api/v5/trade/order'
 
@@ -317,6 +322,11 @@ class OkxAPI:
         """
         撤销订单
         """
+        # 硬锁：仅分析模式下禁止撤单操作
+        if config.ANALYZE_ONLY:
+            log_warning(f"[仅分析模式] 阻止撤单: {order_id}")
+            return False
+
         symbol = symbol or config.SYMBOL
         endpoint = '/api/v5/trade/cancel-order'
         body = {
