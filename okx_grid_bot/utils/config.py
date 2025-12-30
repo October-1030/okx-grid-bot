@@ -54,7 +54,7 @@ MIN_PROFIT_RATE = 0.003  # 0.3% 最小利润率
 MAX_POSITION_GRIDS = 10
 
 # 最大回撤百分比（超过此值暂停交易）
-MAX_DRAWDOWN_PERCENT = 10.0
+MAX_DRAWDOWN_PERCENT = 20.0  # 临时提高，避免误触发
 
 # 日亏损上限（USDT）
 DAILY_LOSS_LIMIT = 50.0

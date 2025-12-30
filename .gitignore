@@ -5,6 +5,7 @@
 *.log
 orders.json
 risk_state.json
+backups/
 
 # Python
 __pycache__/
